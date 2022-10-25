@@ -1,25 +1,50 @@
 import axios from "axios";
-import http from "http";
-import cheerio from "cheerio";
+import { con } from "./mysql_connection.js";
+import mysql from "mysql";
+import getHrefs from "get-hrefs";
 
-const url = "https://www.google.com";
+//let urlRegex = /(\b(https?):\/\/[-A-Z0-9+&@#\/%?=~_|!:,.;]*[-A-Z0-9+&@#\/%=~_|])/gi;
 
-async function main() {
-  const pageHTML = await axios.get(url);
-  const visitedURLs = [];
+function sliceIntoChunks(arr, chunkSize) {
+  const res = [];
+  for (let i = 0; i < arr.length; i += chunkSize) {
+    const chunk = arr.slice(i, i + chunkSize);
+    res.push(chunk);
+  }
+  return res;
+}
 
-  const $ = cheerio.load(pageHTML);
-  const title = $("title").text();
-  console.log("Titre: " + title);
+async function fetchAndInsert(url) {
+  const response = await axios.get(url);
+  const body = await response.data;
 
-  //   console.log(pageHTML);
+  const urls = getHrefs(body, { baseUrl: url });
+
+  const sqlQuery = `INSERT INTO data_scrapped (url, body) VALUES (
+  ${mysql.escape(url)}, 
+  ${mysql.escape(body)}
+  )`;
+
+  con.query(sqlQuery, (error, results, fields) => {
+    if (error) {
+      return console.error("Error:", error.message);
+    }
+    console.log(results);
+  });
+
+  const uniqUrls = Array.from(new Set(urls));
+
+  return sliceIntoChunks(uniqUrls, 100);
+}
+
+async function main(url) {
+  const urls = await fetchAndInsert("https://en.wikipedia.org/wiki/Main_Page");
+
+  urls.forEach((urlBatch) => {
+    urlBatch.forEach((url) => {
+      fetchAndInsert(url);
+    });
+  });
 }
 
 main();
-
-// const server = http.createServer();
-
-// server.listen(4000, "localhost");
-// server.on("listening", () => {
-//   console.log("Serveur démarré : http://localhost:4000/");
-// });
